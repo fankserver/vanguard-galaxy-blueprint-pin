@@ -20,6 +20,7 @@ internal sealed class PinController : IDisposable
     private readonly Dictionary<string, RecipeSnapshot> _choices = new();
     private string _status = "", _fingerprint = "";
     private bool _choosing;
+    private CraftingJobQueryStatus _jobStatus = CraftingJobQueryStatus.SessionUnavailable;
     internal PinController(string provider, ILifecycleApi lifecycle, IRecipeCatalog catalog, IRecipeQuotes quotes, ICraftingJobs jobs, IForgeUi ui, IModHud hud)
     {
         _catalog = catalog; _quotes = quotes; _jobs = jobs; _ui = ui;
@@ -61,6 +62,7 @@ internal sealed class PinController : IDisposable
     {
         if (_pin.Station == null) return;
         var jobs = _jobs.Read(_pin.Station);
+        _jobStatus = jobs.Status;
         if (jobs.Status == CraftingJobQueryStatus.Available) foreach (var job in jobs.Jobs) _pin.Include(job);
     }
     private void UpdateAction()
@@ -78,17 +80,19 @@ internal sealed class PinController : IDisposable
         var rows = new List<HudRow>(); _resources.Clear();
         if (_choosing)
         {
-            foreach (var choice in _choices) rows.Add(new(choice.Key, Short(choice.Value.DisplayName), choice.Value.Process.ToString(),
-                choice.Value.Process == RecipeProcess.Forge ? "Open this exact producer/variant" : "Refining route: use the Refinery; Forge navigation does not open it", clickable: choice.Value.Process == RecipeProcess.Forge));
+            foreach (var choice in _choices) rows.Add(new(choice.Key, Short(choice.Value.DisplayName),
+                Short(choice.Key + " · " + choice.Value.Process + " · " + (choice.Value.Rarity ?? "rarity unspecified") + " · " + choice.Value.Id.LocalId),
+                Short(choice.Value.Id.ProviderId + ":" + choice.Value.Id.LocalId) + (choice.Value.Process == RecipeProcess.Forge ? " — Open this exact producer/variant" : " — Refining route: use the Refinery"), clickable: choice.Value.Process == RecipeProcess.Forge));
             if (rows.Count == 0) rows.Add(new("none", "No available crafting producer", "Gather, loot or buy this ingredient"));
         }
         else
         {
-            rows.Add(new("progress", $"{_pin.Remaining} batches remaining", $"{_pin.Queued} allocated in queue"));
+            rows.Add(new("progress", $"{_pin.Remaining} batches remaining", _jobStatus == CraftingJobQueryStatus.Available ? $"{_pin.Queued} allocated in queue" : "Queue allocation unavailable"));
+            if (_jobStatus != CraftingJobQueryStatus.Available) rows.Add(new("jobs-unavailable", "Allocation-derived requirements unavailable", _jobStatus.ToString()));
             if (_pin.Uncertain) rows.Add(new("uncertain", "Unverified work observed", "Reconcile inventory before pinning a new target"));
             if (_status.Length != 0) rows.Add(new("status", Short(_status)));
             var unallocated = Math.Max(0, _pin.Remaining - _pin.Queued);
-            if (unallocated > 0)
+            if (unallocated > 0 && _jobStatus == CraftingJobQueryStatus.Available)
             {
                 var quote = _quotes.Quote(_pin.Station!, _pin.Recipe, unallocated);
                 if (quote.Status != RecipeQuoteStatus.Available) rows.Add(new("unavailable", "Requirements unavailable", quote.Status.ToString()));

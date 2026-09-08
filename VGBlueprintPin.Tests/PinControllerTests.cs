@@ -45,6 +45,7 @@ public sealed class PinControllerTests
         else
         {
             Assert.Null(api.Opened); Assert.Equal(2, api.Panel!.Rows.Count);
+            Assert.NotEqual(api.Panel.Rows[0].Detail, api.Panel.Rows[1].Detail);
             api.Click!(new(api.CurrentStation.SessionId, HudInteractionKind.Row, "producer1", 2));
             Assert.Equal("producer1", api.Opened!.LocalId);
         }
@@ -54,6 +55,20 @@ public sealed class PinControllerTests
     {
         var api = new Fake(); using var controller = api.Create(); api.Pin!(api.Current!);
         api.Lifecycle!(new(LifecycleEventKind.SessionStarting, null)); controller.Tick(); Assert.Null(api.Panel);
+    }
+    [Theory]
+    [InlineData(false)] [InlineData(true)]
+    public void FailedQueueObservationNeverClaimsAllocationDerivedRequirements(bool initiallyAllocated)
+    {
+        var api = new Fake { Allocate = initiallyAllocated };
+        if (!initiallyAllocated) api.JobStatus = CraftingJobQueryStatus.NativeFailure;
+        using var controller = api.Create(); api.Pin!(api.Current!);
+        api.JobStatus = CraftingJobQueryStatus.NativeFailure; controller.Tick();
+        Assert.Contains(api.Panel!.Rows, row => row.Id == "jobs-unavailable");
+        Assert.DoesNotContain(api.Panel.Rows, row => row.Id.StartsWith("ingredient"));
+        Assert.Contains(api.Panel.Rows, row => row.Detail == "Queue allocation unavailable");
+        api.JobStatus = CraftingJobQueryStatus.Available; controller.Tick();
+        Assert.DoesNotContain(api.Panel.Rows, row => row.Id == "jobs-unavailable");
     }
     private sealed class Token : IDisposable, IHudRegistration, IForgeActionRegistration
     {
@@ -67,6 +82,9 @@ public sealed class PinControllerTests
     private sealed class Fake : ILifecycleApi, IRecipeCatalog, IRecipeQuotes, ICraftingJobs, IForgeUi, IModHud
     {
         internal int FailAt, Updates, ProducerCount;
+        internal bool Allocate;
+        internal CraftingJobQueryStatus JobStatus = CraftingJobQueryStatus.Available;
+        private readonly Guid _jobId = Guid.NewGuid();
         internal Action<HudInteraction>? Click;
         internal Action<LifecycleEvent>? Lifecycle;
         internal RecipeId? Opened;
@@ -97,7 +115,9 @@ public sealed class PinControllerTests
         public RecipeCatalogSnapshot Read(bool includeUnavailable = false) => new(RecipeCatalogStatus.Available, CurrentStation!.SessionId, "", Enumerable.Range(0, ProducerCount).Select(index =>
             new RecipeSnapshot(new("vanilla", "producer" + index), null, "Same display name", RecipeProcess.Forge, RecipeAvailability.Available, "",
                 Array.Empty<RecipeResourceAmount>(), new[] { new RecipeResourceAmount(new("vanilla", "item", RecipeResourceKind.Item), 2) })));
-        public CraftingJobListSnapshot Read(RecipeStationHandle station) => new(CraftingJobQueryStatus.Available, "", Array.Empty<CraftingJobSnapshot>());
+        public CraftingJobListSnapshot Read(RecipeStationHandle station) => new(JobStatus, "", Allocate && JobStatus == CraftingJobQueryStatus.Available
+            ? new[] { new CraftingJobSnapshot(new(station, _jobId), _recipe, RecipeProcess.Forge, CraftingJobState.Active, 2, 2, 1, 0, 1) }
+            : Array.Empty<CraftingJobSnapshot>());
         public RecipeQuote Quote(RecipeStationHandle station, RecipeId recipe, int batches = 1, RefineryInputPolicy refineryPolicy = RefineryInputPolicy.Manual) => new(QuoteStatus, "", station, recipe, batches, 1,
             QuoteStatus == RecipeQuoteStatus.Available ? new[] { new RecipeIngredientRequirement(new("vanilla", "item", RecipeResourceKind.Item), .004,
                 new[] { new RecipeInventoryBalance(RecipeInventoryKind.PlayerArmory, null, true, 1), new RecipeInventoryBalance(RecipeInventoryKind.ShipCargo, null, false, null) }) } : Array.Empty<RecipeIngredientRequirement>(),
