@@ -10,7 +10,7 @@ namespace VGBlueprintPin;
 public class Plugin : BaseUnityPlugin
 {
     public const string PluginGuid = "vgblueprintpin";
-    public const string PluginName = "Vanguard Galaxy Blueprint Pin";
+    public const string PluginName = "Blueprint Pin";
     // BepInEx parses PluginVersion through System.Version which rejects SemVer
     // pre-release suffixes, so stick to the plain N.N.N form.
     public const string PluginVersion = "0.1.1";

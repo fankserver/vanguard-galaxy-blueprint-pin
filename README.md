@@ -1,4 +1,4 @@
-# Vanguard Galaxy Blueprint Pin (VGBlueprintPin)
+# Blueprint Pin (VGBlueprintPin)
 
 ![Pinned blueprint widget shown above the cargo indicator at a space station](docs/screenshots/pinned-blueprint-widget.png)
 
@@ -26,7 +26,7 @@ The plugin is purely additive UI — no game logic, no save data, no balance cha
    ```
 5. **Launch the game.** Open the BepInEx console — you should see a load line ending with the number of Harmony patches applied, e.g.:
    ```
-   [Info :Vanguard Galaxy Blueprint Pin] Vanguard Galaxy Blueprint Pin v0.1.0 loaded (N patches)
+   [Info :Blueprint Pin] Blueprint Pin v0.1.0 loaded (N patches)
    ```
 
 ## Uninstall
