@@ -1,54 +1,20 @@
 <Project Sdk="Microsoft.NET.Sdk">
-
   <PropertyGroup>
     <TargetFramework>netstandard2.1</TargetFramework>
     <AssemblyName>VGBlueprintPin</AssemblyName>
     <Product>Blueprint Pin</Product>
-    <Version>0.1.1</Version>
+    <Version>0.2.0</Version>
     <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <RootNamespace>VGBlueprintPin</RootNamespace>
-    <RestoreAdditionalProjectSources>
-      https://api.nuget.org/v3/index.json;
-      https://nuget.bepinex.dev/v3/index.json;
-      https://nuget.samboy.dev/v3/index.json
-    </RestoreAdditionalProjectSources>
+    <RestoreAdditionalProjectSources>https://api.nuget.org/v3/index.json;https://nuget.bepinex.dev/v3/index.json;https://nuget.samboy.dev/v3/index.json</RestoreAdditionalProjectSources>
   </PropertyGroup>
-
   <ItemGroup>
     <PackageReference Include="BepInEx.Analyzers" Version="1.*" PrivateAssets="all" />
-    <PackageReference Include="BepInEx.Core" Version="5.*" />
+    <PackageReference Include="BepInEx.Core" Version="5.*" IncludeAssets="compile" />
     <PackageReference Include="BepInEx.PluginInfoProps" Version="2.*" />
     <PackageReference Include="UnityEngine.Modules" Version="6000.2.6" IncludeAssets="compile" />
-    <!-- Pinned to 2.10.x: BepInEx 5 ships HarmonyX 2.10, and 2.16 adds a
-         transitive dep on MonoMod.Backports that BepInEx 5 doesn't load at
-         runtime (FileNotFoundException on plugin startup). The release
-         workflow only ships VGBlueprintPin.dll, so the MonoMod runtime DLLs
-         wouldn't go along anyway. Dependabot is instructed to leave
-         HarmonyX alone until BepInEx 5 bumps its bundled version. -->
-    <PackageReference Include="HarmonyX" Version="2.10.*" />
+    <Reference Include="VGModAPI.Abstractions"><HintPath>lib/VGModAPI.Abstractions.dll</HintPath><Private>false</Private></Reference>
   </ItemGroup>
-
-  <ItemGroup>
-    <Reference Include="Assembly-CSharp">
-      <HintPath>lib/Assembly-CSharp.dll</HintPath>
-      <Private>false</Private>
-    </Reference>
-    <!-- UnityEngine.UI (uGUI widgets: Button, Image, layout groups) lives in a
-         separate assembly from the UnityEngine.Modules NuGet meta-package, so we
-         have to reference it directly. Same publicize-and-commit pattern as
-         Assembly-CSharp: the stub carries signatures only, the real runtime takes
-         over in-game. -->
-    <Reference Include="UnityEngine.UI">
-      <HintPath>lib/UnityEngine.UI.dll</HintPath>
-      <Private>false</Private>
-    </Reference>
-    <!-- TextMeshPro ships with Unity but isn't in UnityEngine.Modules either.
-         Needed for TextMeshProUGUI (every label in the pinned-blueprint widget). -->
-    <Reference Include="Unity.TextMeshPro">
-      <HintPath>lib/Unity.TextMeshPro.dll</HintPath>
-      <Private>false</Private>
-    </Reference>
-  </ItemGroup>
-
 </Project>

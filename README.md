@@ -1,62 +1,35 @@
-# Blueprint Pin (VGBlueprintPin)
+# Blueprint Pin
 
-![Pinned blueprint widget shown above the cargo indicator at a space station](docs/screenshots/pinned-blueprint-widget.png)
+Track a Forge recipe's remaining crafting batches while gathering ingredients. Requires BepInEx 5 and **VGModAPI 0.1.38 or newer**. Install Mod API separately; this plugin does not bundle it or any game/Unity references.
 
-A BepInEx plugin for [Vanguard Galaxy](https://store.steampowered.com/app/3471800/) that adds a pinned-blueprint HUD widget. Pin a recipe in the Forge and it stays visible on the right-mid of the screen — above the cargo indicator — so you can see what materials and sub-components you still need without reopening the Forge.
+Enable `[Recipes] Enabled = true` and `[Hud] Enabled = true` in the Mod API configuration, then restart. Unsupported game hashes/bindings remain unavailable. Crafting command integration is not required: Blueprint Pin never queues or cancels work itself.
 
-- **Pin from the Forge** — a small pin toggle on the selected-recipe panel sets the active pin.
-- **Persistent HUD widget** — mirrors the Forge's selected-recipe layout: result header, refined-material rows, sub-item rows.
-- **Click-to-jump** — clicking a sub-ingredient opens the Forge with that sub-recipe preselected (when at a station).
-- **Tracks the side menu** — visible whenever the cargo indicator is, hidden during cutscenes / map / Forge.
-- **Session-only** — the pin lives until you quit the game; no save data is touched.
+## Using the pin
 
-The plugin is purely additive UI — no game logic, no save data, no balance changes. Disabling the plugin (or removing the DLL) restores vanilla behaviour exactly.
+- In the Forge, choose an exact variant and 1–10,000 batches, then select **Pin**.
+- The shared HUD shows the recipe and target station, remaining batches, allocated queued work, and ingredients for batches **not already allocated to the queue**.
+- Ingredient icons and item tooltips use Mod API presentation. Select an ingredient to open its sole available Forge producer, or choose among alternatives. Refining alternatives are identified but require the native Refinery; Forge navigation cannot open them. No producer is not an error or an invented recipe.
+- **Open pinned recipe** navigates to the exact variant at the current station. The target remains scoped to its original station; pin again to change the target station.
+- Close the panel to clear the pin; closing the producer chooser returns to the pin. Repeating Pin with the same variant/station and remaining quantity unpins it.
 
-## Install
+## Target policy
 
-1. **Install BepInEx 5.x** — grab `BepInEx_win_x64_5.4.x.zip` from the [BepInEx releases](https://github.com/BepInEx/BepInEx/releases) and unzip it into your Vanguard Galaxy install folder (next to `VanguardGalaxy.exe`).
-2. **Launch the game once** so BepInEx creates its `BepInEx/plugins/` and `BepInEx/config/` subfolders, then close the game.
-3. **Download the VGBlueprintPin release** zip from [Releases](https://github.com/fank/vanguard-galaxy-blueprint-pin/releases).
-4. **Unzip** into `BepInEx/plugins/`. The zip contains a single `VGBlueprintPin/` folder that drops in cleanly:
-   ```
-   VanguardGalaxy/BepInEx/plugins/
-     VGBlueprintPin/
-       VGBlueprintPin.dll
-       README.md
-   ```
-5. **Launch the game.** Open the BepInEx console — you should see a load line ending with the number of Harmony patches applied, e.g.:
-   ```
-   [Info :Blueprint Pin] Blueprint Pin v0.1.0 loaded (N patches)
-   ```
+A target counts **future verified batches**, not output units. A batch can produce multiple items, materials, fractional quantities or generated outputs. Queue admission does not complete a batch.
 
-## Uninstall
+Existing matching jobs at the pinned station allocate their remaining batches once. Newly queued jobs can allocate unmet work. Verified batch delivery reduces the target and its allocation by one. Cancelling releases unfinished allocation without restoring already completed batches. Unresolved delivery, missing observations or faults produce a reconciliation warning rather than guessed success. Faults do not assume a still-running job was removed. Repeated/older facts cannot complete the same batch twice.
 
-Delete the `BepInEx/plugins/VGBlueprintPin/` folder. The plugin holds no config and no per-save state, so nothing else needs cleanup.
+Availability is advisory and not a reservation. Inaccessible cargo is excluded explicitly; unknown data is never presented as known stock. A missing recipe or unavailable service shows an unavailable state rather than stale requirements. Pins are session-only and clear on session replacement/failure; they do not serialize native handles or add save callbacks. Native job persistence belongs to the game/API, not the pin.
 
-## Build
+## Build and checks
 
-The repo commits **publicized stubs** of the three game-specific assemblies it references — `Assembly-CSharp.dll`, `UnityEngine.UI.dll`, `Unity.TextMeshPro.dll` — at `VGBlueprintPin/lib/`. These are method-signature-only stubs (every IL body replaced with `throw null;` by `assembly-publicizer --strip`), legal to redistribute, and enough to compile against. The real runtime takes over in-game.
+.NET SDK 10 is required for tests. Build the Mod API abstractions at the required version, then:
 
-The remaining references — BepInEx, HarmonyX, and the Unity engine modules — come from NuGet (see `VGBlueprintPin/VGBlueprintPin.csproj`).
-
-```bash
-# Build the DLL
-make build      # or: dotnet build VGBlueprintPin/VGBlueprintPin.csproj -c Debug
-
-# Build + copy into the game's BepInEx/plugins/ folder (WSL/Steam path; edit Makefile if yours differs)
-make deploy
+```sh
+make build test CONFIGURATION=Release API_ABSTRACTIONS=/path/to/VGModAPI.Abstractions.dll
 ```
 
-To regenerate the stubs after a game update, install [`assembly-publicizer`](https://github.com/CabbageCrow/AssemblyPublicizer) and run:
+Only `VGBlueprintPin/bin/Release/netstandard2.1/VGBlueprintPin.dll` is installed into `BepInEx/plugins/`. `make deploy` changes the local game installation; use it only for an authorized deployment. CI builds public contracts from a pinned API source revision; no game, UI or TextMeshPro assembly is used.
 
-```bash
-assembly-publicizer --strip <game>/VanguardGalaxy_Data/Managed/Assembly-CSharp.dll  -o VGBlueprintPin/lib/Assembly-CSharp.dll
-assembly-publicizer --strip <game>/VanguardGalaxy_Data/Managed/UnityEngine.UI.dll   -o VGBlueprintPin/lib/UnityEngine.UI.dll
-assembly-publicizer --strip <game>/VanguardGalaxy_Data/Managed/Unity.TextMeshPro.dll -o VGBlueprintPin/lib/Unity.TextMeshPro.dll
-```
+The consumer uses public recipes, quotes, Forge actions/navigation, job events and shared HUD contracts. Unity is used only for the BepInEx host/tick clock, not game access or presentation. No Harmony patch, private reflection, retained game recipe or cloned ingredient widget is used.
 
-`--strip` is required — without it, the committed DLLs would carry the proprietary IL bodies, which can't be redistributed.
-
-## License
-
-MIT — see [LICENSE](LICENSE).
+Host tests do not qualify native layout, tooltip/input behavior, scaling, alternative-producer navigation or multi-output count behavior. Controlled Unity acceptance remains required before claiming those paths qualified.

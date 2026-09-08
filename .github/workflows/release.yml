@@ -1,14 +1,6 @@
 name: Package release
 
-# Triggers when a GitHub Release is published. Also runnable manually.
-#
-# The plugin references Assembly-CSharp.dll (the game's proprietary
-# assembly) plus UnityEngine.UI.dll and Unity.TextMeshPro.dll (Unity
-# runtime bits not covered by the UnityEngine.Modules NuGet). None can
-# live on a public runner, so the repo commits PUBLICIZED stubs (method
-# signatures only, no IL) at VGBlueprintPin/lib/. CI compiles against the
-# stubs; the real runtime assemblies take over in-game via Mono's late
-# binding.
+# Build only public API contracts; never upload game or Unity references.
 
 on:
   release:
@@ -38,29 +30,24 @@ jobs:
       - name: Setup .NET SDK
         uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: '8.0.x'
+          dotnet-version: '10.0.x'
 
-      - name: Verify publicized references are committed
+      - name: Checkout inspected API contracts
+        uses: actions/checkout@v7
+        with:
+          repository: fankserver/vanguard-galaxy-api
+          ref: 0e1b575155057d8249273fc823acd7a48786e892
+          path: .api
+
+      - name: Build public contracts and consumer
         run: |
-          missing=0
-          for stub in Assembly-CSharp.dll UnityEngine.UI.dll Unity.TextMeshPro.dll; do
-            path="VGBlueprintPin/lib/$stub"
-            if [ ! -s "$path" ]; then
-              echo "::error::$path is missing or empty. Regenerate via 'assembly-publicizer --strip <game>/$stub -o $path' and commit. (--strip is required.)"
-              missing=1
-            else
-              echo "Publicized reference present: $path ($(du -h "$path" | cut -f1))"
-            fi
-          done
-          [ "$missing" = "0" ] || exit 1
-
-      - name: Build VGBlueprintPin.dll
-        run: dotnet build VGBlueprintPin/VGBlueprintPin.csproj -c Debug --nologo
+          dotnet build .api/VGModAPI.Abstractions/VGModAPI.Abstractions.csproj -c Release --nologo
+          make build test CONFIGURATION=Release API_ABSTRACTIONS="$PWD/.api/VGModAPI.Abstractions/bin/Release/netstandard2.1/VGModAPI.Abstractions.dll"
 
       - name: Stage release layout
         id: stage
         run: |
-          VERSION=$(grep 'PluginVersion =' VGBlueprintPin/Plugin.cs | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          VERSION=$(python3 -c 'import xml.etree.ElementTree as E; print(E.parse("VGBlueprintPin/VGBlueprintPin.csproj").findtext("PropertyGroup/Version"))')
           PKG_NAME="VGBlueprintPin-v${VERSION}"
           # Nested VGBlueprintPin/ is intentional: it's the folder the user drops
           # into BepInEx/plugins/.
@@ -69,7 +56,7 @@ jobs:
           rm -rf "dist/${PKG_NAME}"
           mkdir -p "$PKG_DIR"
 
-          cp VGBlueprintPin/bin/Debug/netstandard2.1/VGBlueprintPin.dll "$PKG_DIR/"
+          cp VGBlueprintPin/bin/Release/netstandard2.1/VGBlueprintPin.dll "$PKG_DIR/"
           cp README.md "$PKG_DIR/"
           [ -f LICENSE ] && cp LICENSE "$PKG_DIR/" || true
 
