@@ -35,3 +35,5 @@ VGBlueprintPin/lib/*.pdb
 
 # Release staging artifacts produced by the release workflow
 dist/
+
+VGBlueprintPin/lib/*.dll

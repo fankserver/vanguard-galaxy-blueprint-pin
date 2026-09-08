@@ -1,45 +1,23 @@
-TFM      := netstandard2.1
-CONFIG   := Debug
-DLL      := VGBlueprintPin.dll
+CONFIG ?= Debug
+CONFIGURATION ?= $(CONFIG)
+DOTNET ?= $(shell command -v dotnet 2>/dev/null || echo /tmp/dnsdk/dotnet/dotnet)
+API_ABSTRACTIONS ?= ../vanguard-galaxy-api/VGModAPI.Abstractions/bin/Release/netstandard2.1/VGModAPI.Abstractions.dll
+GAME_DIR ?= /mnt/c/Program Files (x86)/Steam/steamapps/common/Vanguard Galaxy
+BUILDDIR := VGBlueprintPin/bin/$(CONFIGURATION)/netstandard2.1
 
-BUILDDIR := VGBlueprintPin/bin/$(CONFIG)/$(TFM)
-BUILDDLL := $(BUILDDIR)/$(DLL)
-
-# WSL path to the game install — adjust if Steam lives elsewhere
-GAME_DIR := /mnt/c/Program Files (x86)/Steam/steamapps/common/Vanguard Galaxy
-PLUGIN_DIR := $(GAME_DIR)/BepInEx/plugins
-
-# Resolve dotnet — prefer explicit local SDK, fall back to PATH
-DOTNET   ?= $(shell command -v dotnet 2>/dev/null || echo /tmp/dnsdk/dotnet/dotnet)
-
-.PHONY: all build link-asm clean deploy check-bepinex
-
+.PHONY: all link-api build test deploy clean
 all: build
-
-check-bepinex:
-	@test -d "$(GAME_DIR)/BepInEx/plugins" || { \
-		echo "BepInEx plugins dir not found at $(GAME_DIR)/BepInEx/plugins." ; \
-		echo "Install BepInEx 5.x into the game folder and launch the game once." ; \
-		exit 1 ; \
-	}
-
-# Symlink the game's Assembly-CSharp.dll into VGBlueprintPin/lib/ for compilation references.
-link-asm:
+link-api:
+	@test -f "$(API_ABSTRACTIONS)" || { echo 'Build Mod API 0.1.38+ abstractions or set API_ABSTRACTIONS to its DLL.'; exit 1; }
 	@mkdir -p VGBlueprintPin/lib
-	@if [ ! -e "VGBlueprintPin/lib/Assembly-CSharp.dll" ]; then \
-		ln -sf "$(GAME_DIR)/VanguardGalaxy_Data/Managed/Assembly-CSharp.dll" VGBlueprintPin/lib/Assembly-CSharp.dll ; \
-		echo "Linked Assembly-CSharp.dll" ; \
-	fi
-
-build: link-asm
-	DOTNET_ROOT=$(dir $(DOTNET)) $(DOTNET) build VGBlueprintPin/VGBlueprintPin.csproj -c $(CONFIG)
-
-deploy: build check-bepinex
-	@mkdir -p "$(PLUGIN_DIR)"
-	cp "$(BUILDDLL)" "$(PLUGIN_DIR)/"
-	@if [ -f "$(BUILDDIR)/VGBlueprintPin.pdb" ]; then cp "$(BUILDDIR)/VGBlueprintPin.pdb" "$(PLUGIN_DIR)/"; fi
-	@echo "Deployed $(DLL) to $(PLUGIN_DIR)"
-
+	@ln -sf "$(abspath $(API_ABSTRACTIONS))" VGBlueprintPin/lib/VGModAPI.Abstractions.dll
+build: link-api
+	$(DOTNET) build VGBlueprintPin/VGBlueprintPin.csproj -c $(CONFIGURATION)
+test: link-api
+	$(DOTNET) test VGBlueprintPin.Tests/VGBlueprintPin.Tests.csproj -c $(CONFIGURATION)
+deploy: build
+	@test -d "$(GAME_DIR)/BepInEx/plugins"
+	cp "$(BUILDDIR)/VGBlueprintPin.dll" "$(GAME_DIR)/BepInEx/plugins/"
 clean:
 	$(DOTNET) clean VGBlueprintPin/VGBlueprintPin.csproj
-	rm -rf VGBlueprintPin/bin VGBlueprintPin/obj
+	rm -rf VGBlueprintPin/bin VGBlueprintPin/obj VGBlueprintPin.Tests/bin VGBlueprintPin.Tests/obj
