@@ -36,7 +36,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           repository: fankserver/vanguard-galaxy-api
-          ref: 0e1b575155057d8249273fc823acd7a48786e892
+          ref: 75ab5927f21bd66aa3077b67315056ccc25a9894
           path: .api
 
       - name: Build public contracts and consumer

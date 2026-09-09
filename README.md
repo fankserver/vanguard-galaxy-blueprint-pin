@@ -1,6 +1,6 @@
 # Blueprint Pin
 
-Track a Forge recipe's remaining crafting batches while gathering ingredients. Requires BepInEx 5 and **VGModAPI 0.1.38 or newer**. Install Mod API separately; this plugin does not bundle it or any game/Unity references.
+Track a Forge recipe's remaining crafting batches while gathering ingredients. Requires BepInEx 5 and **VGModAPI 0.2.0 or newer**. Blueprint Pin 0.3 uses the typed `ModApi.Services` facade and events; it is not compatible with API 0.1.x. Install Mod API separately; this plugin does not bundle it or any game/Unity references.
 
 Enable `[Recipes] Enabled = true` and `[Hud] Enabled = true` in the Mod API configuration, then restart. Unsupported game hashes/bindings remain unavailable. Crafting command integration is not required: Blueprint Pin never queues or cancels work itself.
 

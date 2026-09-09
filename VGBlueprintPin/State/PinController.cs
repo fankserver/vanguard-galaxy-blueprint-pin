@@ -9,10 +9,10 @@ namespace VGBlueprintPin.State;
 internal sealed class PinController : IDisposable
 {
     private readonly BlueprintPin _pin = new();
-    private readonly IRecipeCatalog _catalog;
-    private readonly IRecipeQuotes _quotes;
-    private readonly ICraftingJobs _jobs;
-    private readonly IForgeUi _ui;
+    private readonly IRecipeService _catalog;
+    private readonly IRecipeQuoteService _quotes;
+    private readonly ICraftingJobService _jobs;
+    private readonly IForgeUiService _ui;
     private readonly IHudRegistration _hud;
     private readonly IForgeActionRegistration _action;
     private readonly IDisposable _lifetime, _jobEvents, _selection;
@@ -21,7 +21,7 @@ internal sealed class PinController : IDisposable
     private string _status = "", _fingerprint = "";
     private bool _choosing;
     private CraftingJobQueryStatus _jobStatus = CraftingJobQueryStatus.SessionUnavailable;
-    internal PinController(string provider, ILifecycleApi lifecycle, IRecipeCatalog catalog, IRecipeQuotes quotes, ICraftingJobs jobs, IForgeUi ui, IModHud hud)
+    internal PinController(string provider, ILifecycleService lifecycle, IRecipeService catalog, IRecipeQuoteService quotes, ICraftingJobService jobs, IForgeUiService ui, IHudService hud)
     {
         _catalog = catalog; _quotes = quotes; _jobs = jobs; _ui = ui;
         var owned = new List<IDisposable>();
@@ -30,9 +30,9 @@ internal sealed class PinController : IDisposable
         _hud = hud.Register(provider, "blueprint", OnHud); owned.Add(_hud);
         _action = ui.RegisterAction(provider, "pin", new("Pin", "Track verified future batches", enabled: false), PinSelection, 0);
         owned.Add(_action);
-        _selection = ui.Subscribe(provider, _ => UpdateAction()); owned.Add(_selection);
-        _jobEvents = jobs.Subscribe(provider, fact => _pin.Observe(fact)); owned.Add(_jobEvents);
-        _lifetime = lifecycle.Subscribe(provider, fact =>
+        _selection = Observe<ForgeSelectionChange>(handler => ui.Changed += handler, handler => ui.Changed -= handler, _ => UpdateAction()); owned.Add(_selection);
+        _jobEvents = Observe<CraftingJobEvent>(handler => jobs.Changed += handler, handler => jobs.Changed -= handler, fact => _pin.Observe(fact)); owned.Add(_jobEvents);
+        _lifetime = Observe<LifecycleEvent>(handler => lifecycle.Changed += handler, handler => lifecycle.Changed -= handler, fact =>
         {
             if (fact.Kind is LifecycleEventKind.SessionStarting or LifecycleEventKind.SessionInvalidated or LifecycleEventKind.SessionStartFailed)
             { _pin.Clear(); _choosing = false; _status = ""; _hud.Update(null, null); _fingerprint = ""; }
@@ -147,5 +147,16 @@ internal sealed class PinController : IDisposable
     private void Navigate(RecipeId recipe) => _status = "Navigation: " + _ui.Open(recipe);
     private static string Number(double? value) => value?.ToString("G9", CultureInfo.InvariantCulture) ?? "unknown";
     private static string Short(string value) => value.Length <= 256 ? value : value.Substring(0, 253) + "...";
+    private static IDisposable Observe<T>(Action<Action<T>> attach, Action<Action<T>> detach, Action<T> handler)
+    {
+        attach(handler);
+        return new EventLease(() => detach(handler));
+    }
+    private sealed class EventLease : IDisposable
+    {
+        private Action? _detach;
+        internal EventLease(Action detach) { _detach = detach; }
+        public void Dispose() { var detach = _detach; _detach = null; detach?.Invoke(); }
+    }
     public void Dispose() { _selection.Dispose(); _jobEvents.Dispose(); _lifetime.Dispose(); _action.Dispose(); _hud.Dispose(); _pin.Clear(); }
 }

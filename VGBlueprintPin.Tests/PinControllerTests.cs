@@ -16,6 +16,7 @@ public sealed class PinControllerTests
         var api = new Fake { FailAt = failure };
         Assert.Throws<InvalidOperationException>(() => api.Create());
         Assert.All(api.Tokens, token => Assert.True(token.Disposed));
+        Assert.Equal(0, api.ActiveSubscriptions); Assert.Null(api.Lifecycle);
     }
     [Fact]
     public void StableRenderingKeepsRevisionAndUnavailableDataReplacesRequirements()
@@ -33,6 +34,7 @@ public sealed class PinControllerTests
     {
         var api = new Fake(); var controller = api.Create(); controller.Dispose();
         Assert.Equal(5, api.Tokens.Count); Assert.All(api.Tokens, token => Assert.True(token.Disposed));
+        Assert.Equal(0, api.ActiveSubscriptions); Assert.Null(api.Lifecycle);
     }
     [Theory]
     [InlineData(0)] [InlineData(1)] [InlineData(2)]
@@ -79,7 +81,7 @@ public sealed class PinControllerTests
         public void Update(ForgeActionPresentation presentation) { }
         public void Update(HudButton? button, HudPanel? panel) { _api.Panel = panel; _api.Updates++; }
     }
-    private sealed class Fake : ILifecycleApi, IRecipeCatalog, IRecipeQuotes, ICraftingJobs, IForgeUi, IModHud
+    private sealed class Fake : ILifecycleService, IRecipeService, IRecipeQuoteService, ICraftingJobService, IForgeUiService, IHudService
     {
         internal int FailAt, Updates, ProducerCount;
         internal bool Allocate;
@@ -97,7 +99,12 @@ public sealed class PinControllerTests
         public RecipeStationHandle? CurrentStation { get; } = new(Guid.NewGuid(), Guid.NewGuid(), "Station");
         public ForgeSelectionSnapshot? Current => new(new(CurrentStation!.SessionId, Guid.NewGuid()), CurrentStation, _recipe, _recipe, new[] { _recipe }, 2, 1, new("Recipe", true));
         public SessionSnapshot? CurrentSession => null;
-        public IReadOnlyList<CapabilityStatus> Capabilities => Array.Empty<CapabilityStatus>();
+        public ServiceAvailability Availability => ServiceAvailability.Available;
+        public event Action<ServiceAvailability>? AvailabilityChanged { add { } remove { } }
+        public IServiceStatus SessionTracking => this;
+        public IServiceStatus SaveOutcomes => this;
+        private readonly Dictionary<Delegate, Token> _subscriptions = new();
+        internal int ActiveSubscriptions => _subscriptions.Count;
         public bool IsDispatchingCallbacks => false;
         public bool Visible => true;
         internal PinController Create() => new("test", this, this, this, this, this, this);
@@ -106,9 +113,25 @@ public sealed class PinControllerTests
             if (++_registrations == FailAt) throw new InvalidOperationException("Registration unavailable");
             var token = new Token(this); Tokens.Add(token); return token;
         }
-        public IDisposable Subscribe(string owner, Action<LifecycleEvent> callback) { Lifecycle = callback; return Acquire(); }
-        public IDisposable Subscribe(string owner, Action<CraftingJobEvent> callback) => Acquire();
-        public IDisposable Subscribe(string owner, Action<ForgeSelectionChange> callback) => Acquire();
+        event Action<LifecycleEvent>? ILifecycleService.Changed
+        {
+            add { _subscriptions.Add(value!, Acquire()); Lifecycle += value; }
+            remove { Lifecycle -= value; Release(value); }
+        }
+        event Action<CraftingJobEvent>? ICraftingJobService.Changed
+        {
+            add { _subscriptions.Add(value!, Acquire()); }
+            remove { Release(value); }
+        }
+        event Action<ForgeSelectionChange>? IForgeUiService.Changed
+        {
+            add { _subscriptions.Add(value!, Acquire()); }
+            remove { Release(value); }
+        }
+        private void Release(Delegate? handler)
+        {
+            if (handler != null && _subscriptions.Remove(handler, out var token)) token.Dispose();
+        }
         public IHudRegistration Register(string pluginId, string localId, Action<HudInteraction> callback, int order = 0) { Click = callback; return Acquire(); }
         public IForgeActionRegistration RegisterAction(string pluginId, string localId, ForgeActionPresentation presentation, Action<ForgeSelectionSnapshot> callback, int order = 0) { Pin = callback; return Acquire(); }
         public ForgeNavigationStatus Open(RecipeId recipe) { Opened = recipe; return ForgeNavigationStatus.Selected; }
