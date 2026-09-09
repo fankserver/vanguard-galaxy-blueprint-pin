@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "pluginId": "vgblueprintpin",
+  "author": "fank",
+  "description": "Pin a Forge blueprint in a compact ingredient widget. Track required materials and available stock, find ingredient recipes, and reopen the exact blueprint in the Forge.",
+  "projectUrl": "https://github.com/fankserver/vanguard-galaxy-blueprint-pin",
+  "updateUrl": "https://github.com/fankserver/vanguard-galaxy-blueprint-pin/releases/latest/download/update.json",
+  "channel": "stable"
+}

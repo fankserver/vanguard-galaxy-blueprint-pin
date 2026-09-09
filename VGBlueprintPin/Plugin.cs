@@ -10,7 +10,7 @@ namespace VGBlueprintPin;
 [BepInDependency(ModApi.PluginId, "0.2.4")]
 public sealed class Plugin : BaseUnityPlugin
 {
-    public const string PluginGuid = "vgblueprintpin", PluginName = "Blueprint Pin", PluginVersion = "0.4.0";
+    public const string PluginGuid = "vgblueprintpin", PluginName = "Blueprint Pin", PluginVersion = "0.4.1";
     private PinController? _controller;
     private float _next;
     private bool _warned;

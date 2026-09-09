@@ -28,7 +28,7 @@ Availability is advisory and not a reservation. Inaccessible cargo is excluded e
 make build test CONFIGURATION=Release API_ABSTRACTIONS=/path/to/VGModAPI.Abstractions.dll
 ```
 
-Only `VGBlueprintPin/bin/Release/netstandard2.1/VGBlueprintPin.dll` is installed into `BepInEx/plugins/`. `make deploy` changes the local game installation; use it only for an authorized deployment. CI builds public contracts from a pinned API source revision; no game, UI or TextMeshPro assembly is used.
+Install the release archive's `VGBlueprintPin` folder into `BepInEx/plugins/`. Keep `vgblueprintpin.vgmod.json` beside `VGBlueprintPin.dll`: it provides the Mods-menu description, author, project link and stable update feed. Remove an older standalone copy of the DLL when switching to the folder layout; do not load both. `make package CONFIGURATION=Release` creates the ZIP and matching `update.json` from the project version. Publish both as release assets; the update feed must not advertise a release without its archive. Published assets are not overwritten. `make deploy` installs the DLL and metadata into the local game installation; use it only for an authorized deployment. CI builds public contracts from a pinned API source revision; no game, UI or TextMeshPro assembly is used.
 
 The consumer uses public recipes, quotes, Forge actions/navigation, job events and shared HUD contracts. Unity is used only for the BepInEx host/tick clock, not game access or presentation. No Harmony patch, private reflection, retained game recipe or cloned ingredient widget is used.
 
