@@ -22,13 +22,36 @@ public sealed class PinControllerTests
     public void StableRenderingKeepsRevisionAndUnavailableDataReplacesRequirements()
     {
         var api = new Fake(); using var controller = api.Create(); api.Pin!(api.Current!);
-        Assert.Contains(api.Panel!.Rows, row => row.Detail.Contains("inaccessible cargo excluded"));
-        Assert.Contains(api.Panel.Rows, row => row.Detail.Contains("0.004"));
+        Assert.Contains(api.Panel!.Rows, row => row.Tooltip.Contains("inaccessible cargo excluded"));
+        Assert.Contains(api.Panel.Rows, row => row.IngredientAmounts?.RequiredText == "0.004");
         var updates = api.Updates; controller.Tick(); Assert.Equal(updates, api.Updates);
         api.QuoteStatus = RecipeQuoteStatus.RecipeUnavailable; controller.Tick();
         Assert.DoesNotContain(api.Panel.Rows, row => row.Id.StartsWith("ingredient"));
         Assert.Contains(api.Panel.Rows, row => row.Label == "Requirements unavailable");
     }
+    [Fact]
+    public void ThresholdCrossingRefreshesIngredientSufficiency()
+    {
+        var api = new Fake { Available = .003999999999 }; using var controller = api.Create(); api.Pin!(api.Current!);
+        Assert.False(api.Panel!.Rows.Single().IngredientAmounts!.Sufficient);
+        var updates = api.Updates;
+        api.Available = .004000000001; controller.Tick();
+        Assert.True(api.Updates > updates);
+        Assert.True(api.Panel!.Rows.Single().IngredientAmounts!.Sufficient);
+    }
+
+    [Fact]
+    public void SuccessfulOpenDoesNotExposeNavigationStatus()
+    {
+        var api = new Fake(); using var controller = api.Create(); api.Pin!(api.Current!);
+        api.Click!(new(api.CurrentStation!.SessionId, HudInteractionKind.Button, null, 1));
+        Assert.NotNull(api.Opened);
+        Assert.DoesNotContain(api.Panel!.Rows, row => row.Id == "status");
+        Assert.Equal("Recipe", api.Panel.Title);
+        Assert.Equal("Show in Forge", api.Button!.Label);
+        Assert.Equal("Pinned", api.Action!.Label);
+    }
+
     [Fact]
     public void DisposeReleasesAllSubscriptionsAndRegistrations()
     {
@@ -68,7 +91,7 @@ public sealed class PinControllerTests
         api.JobStatus = CraftingJobQueryStatus.NativeFailure; controller.Tick();
         Assert.Contains(api.Panel!.Rows, row => row.Id == "jobs-unavailable");
         Assert.DoesNotContain(api.Panel.Rows, row => row.Id.StartsWith("ingredient"));
-        Assert.Contains(api.Panel.Rows, row => row.Detail == "Queue allocation unavailable");
+        Assert.DoesNotContain(api.Panel.Rows, row => row.Id == "progress" || row.Id == "crafting");
         api.JobStatus = CraftingJobQueryStatus.Available; controller.Tick();
         Assert.DoesNotContain(api.Panel.Rows, row => row.Id == "jobs-unavailable");
     }
@@ -78,13 +101,14 @@ public sealed class PinControllerTests
         internal bool Disposed;
         internal Token(Fake api) { _api = api; }
         public void Dispose() => Disposed = true;
-        public void Update(ForgeActionPresentation presentation) { }
-        public void Update(HudButton? button, HudPanel? panel) { _api.Panel = panel; _api.Updates++; }
+        public void Update(ForgeActionPresentation presentation) { _api.Action = presentation; }
+        public void Update(HudButton? button, HudPanel? panel) { _api.Panel = panel; _api.Button = button; _api.Updates++; }
     }
     private sealed class Fake : ILifecycleService, IRecipeService, IRecipeQuoteService, ICraftingJobService, IForgeUiService, IHudService
     {
         internal int FailAt, Updates, ProducerCount;
         internal bool Allocate;
+        internal double Available = 1;
         internal CraftingJobQueryStatus JobStatus = CraftingJobQueryStatus.Available;
         private readonly Guid _jobId = Guid.NewGuid();
         internal Action<HudInteraction>? Click;
@@ -94,6 +118,8 @@ public sealed class PinControllerTests
         internal List<Token> Tokens = new();
         internal Action<ForgeSelectionSnapshot>? Pin;
         internal HudPanel? Panel;
+        internal HudButton? Button;
+        internal ForgeActionPresentation? Action;
         internal RecipeQuoteStatus QuoteStatus = RecipeQuoteStatus.Available;
         private readonly RecipeId _recipe = new("vanilla", "variant");
         public RecipeStationHandle? CurrentStation { get; } = new(Guid.NewGuid(), Guid.NewGuid(), "Station");
@@ -143,7 +169,7 @@ public sealed class PinControllerTests
             : Array.Empty<CraftingJobSnapshot>());
         public RecipeQuote Quote(RecipeStationHandle station, RecipeId recipe, int batches = 1, RefineryInputPolicy refineryPolicy = RefineryInputPolicy.Manual) => new(QuoteStatus, "", station, recipe, batches, 1,
             QuoteStatus == RecipeQuoteStatus.Available ? new[] { new RecipeIngredientRequirement(new("vanilla", "item", RecipeResourceKind.Item), .004,
-                new[] { new RecipeInventoryBalance(RecipeInventoryKind.PlayerArmory, null, true, 1), new RecipeInventoryBalance(RecipeInventoryKind.ShipCargo, null, false, null) }) } : Array.Empty<RecipeIngredientRequirement>(),
+                new[] { new RecipeInventoryBalance(RecipeInventoryKind.PlayerArmory, null, true, Available), new RecipeInventoryBalance(RecipeInventoryKind.ShipCargo, null, false, null) }) } : Array.Empty<RecipeIngredientRequirement>(),
             Array.Empty<RecipeOutputPreview>(), Array.Empty<RecipeBlocker>(), creditsAvailable: 0, creditsRequired: 0);
         public RecipeQuote QuoteMaterialExtraction(RecipeStationHandle station, RecipeResourceId material, int count = 1) => throw new NotSupportedException();
     }
