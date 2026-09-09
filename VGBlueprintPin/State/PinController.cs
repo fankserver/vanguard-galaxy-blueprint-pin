@@ -88,7 +88,7 @@ internal sealed class PinController : IDisposable
         else
         {
             if (_pin.Remaining == 0) rows.Add(new("complete", "Complete"));
-            else if (_pin.Remaining <= _pin.Queued) rows.Add(new("crafting", "Crafting in progress"));
+            else if (_jobStatus == CraftingJobQueryStatus.Available && _pin.Remaining <= _pin.Queued) rows.Add(new("crafting", "Crafting in progress"));
             if (_jobStatus != CraftingJobQueryStatus.Available) rows.Add(new("jobs-unavailable", "Crafting progress unavailable"));
             if (_pin.Uncertain) rows.Add(new("uncertain", "Unverified work observed", "Reconcile inventory before pinning a new target"));
             if (_status.Length != 0) rows.Add(new("status", Short(_status)));
@@ -155,7 +155,7 @@ internal sealed class PinController : IDisposable
         _status = result == ForgeNavigationStatus.Selected ? "" : result == ForgeNavigationStatus.NotAtStation
             ? "Dock at a station to open its Forge" : "This blueprint cannot be opened in the current Forge";
     }
-    private static string Number(double? value) => value?.ToString("G9", CultureInfo.InvariantCulture) ?? "unknown";
+    private static string Number(double? value) => value?.ToString("R", CultureInfo.InvariantCulture) ?? "unknown";
     private static string Short(string value) => value.Length <= 256 ? value : value.Substring(0, 253) + "...";
     private static IDisposable Observe<T>(Action<Action<T>> attach, Action<Action<T>> detach, Action<T> handler)
     {
