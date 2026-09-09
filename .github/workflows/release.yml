@@ -1,14 +1,12 @@
 name: Package release
 
-# Build only public API contracts; never upload game or Unity references.
-
 on:
   release:
     types: [published]
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release tag to (re)package"
+        description: "Release tag to package"
         required: true
         type: string
 
@@ -17,63 +15,32 @@ permissions:
 
 jobs:
   package:
+    if: github.event_name != 'release' || !contains(github.event.release.assets.*.name, 'update.json')
     runs-on: ubuntu-latest
     env:
       TAG: ${{ github.event.release.tag_name || inputs.tag }}
-
     steps:
-      - name: Checkout repo at release tag
-        uses: actions/checkout@v7
+      - uses: actions/checkout@v7
         with:
           ref: ${{ env.TAG }}
-
-      - name: Setup .NET SDK
-        uses: actions/setup-dotnet@v6
+      - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '10.0.x'
-
-      - name: Checkout inspected API contracts
+      - name: Checkout public API contracts
         uses: actions/checkout@v7
         with:
           repository: fankserver/vanguard-galaxy-api
           ref: 604163e4cbab2b0f24c8905a02a1eae3b76793db
           path: .api
-
-      - name: Build public contracts and consumer
+      - name: Build and test
         run: |
           dotnet build .api/VGModAPI.Abstractions/VGModAPI.Abstractions.csproj -c Release --nologo
           make build test CONFIGURATION=Release API_ABSTRACTIONS="$PWD/.api/VGModAPI.Abstractions/bin/Release/netstandard2.1/VGModAPI.Abstractions.dll"
-
-      - name: Stage release layout
-        id: stage
-        run: |
-          VERSION=$(python3 -c 'import xml.etree.ElementTree as E; print(E.parse("VGBlueprintPin/VGBlueprintPin.csproj").findtext("PropertyGroup/Version"))')
-          PKG_NAME="VGBlueprintPin-v${VERSION}"
-          # Nested VGBlueprintPin/ is intentional: it's the folder the user drops
-          # into BepInEx/plugins/.
-          PKG_DIR="dist/${PKG_NAME}/VGBlueprintPin"
-
-          rm -rf "dist/${PKG_NAME}"
-          mkdir -p "$PKG_DIR"
-
-          cp VGBlueprintPin/bin/Release/netstandard2.1/VGBlueprintPin.dll "$PKG_DIR/"
-          cp README.md "$PKG_DIR/"
-          [ -f LICENSE ] && cp LICENSE "$PKG_DIR/" || true
-
-          SIZE=$(du -sh "$PKG_DIR" | cut -f1)
-          echo "Staged DLL + README — $SIZE at $PKG_DIR"
-
-          echo "pkg_name=${PKG_NAME}" >> "$GITHUB_OUTPUT"
-
-      - name: Zip release bundle
-        run: |
-          (cd "dist/${{ steps.stage.outputs.pkg_name }}" && \
-             zip -qr "../${{ steps.stage.outputs.pkg_name }}.zip" VGBlueprintPin)
-          ls -lh "dist/${{ steps.stage.outputs.pkg_name }}.zip"
-
-      - name: Upload zip to release
+      - name: Package and validate metadata
+        run: python3 tools/package.py --tag "$TAG"
+      - name: Upload immutable assets
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release upload "$TAG" "dist/${{ steps.stage.outputs.pkg_name }}.zip" --clobber
-          echo "Uploaded ${{ steps.stage.outputs.pkg_name }}.zip to release $TAG"
+          gh release upload "$TAG" dist/*.zip
+          gh release upload "$TAG" dist/update.json

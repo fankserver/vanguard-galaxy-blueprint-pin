@@ -3,7 +3,7 @@
     <TargetFramework>netstandard2.1</TargetFramework>
     <AssemblyName>VGBlueprintPin</AssemblyName>
     <Product>Blueprint Pin</Product>
-    <Version>0.4.0</Version>
+    <Version>0.4.1</Version>
     <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
