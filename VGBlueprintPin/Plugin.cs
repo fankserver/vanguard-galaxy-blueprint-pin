@@ -7,10 +7,10 @@ namespace VGBlueprintPin;
 
 [BepInPlugin(PluginGuid, PluginName, PluginVersion)]
 [BepInProcess("VanguardGalaxy.exe")]
-[BepInDependency(ModApi.PluginId, "0.2.0")]
+[BepInDependency(ModApi.PluginId, "0.2.4")]
 public sealed class Plugin : BaseUnityPlugin
 {
-    public const string PluginGuid = "vgblueprintpin", PluginName = "Blueprint Pin", PluginVersion = "0.3.0";
+    public const string PluginGuid = "vgblueprintpin", PluginName = "Blueprint Pin", PluginVersion = "0.4.0";
     private PinController? _controller;
     private float _next;
     private bool _warned;

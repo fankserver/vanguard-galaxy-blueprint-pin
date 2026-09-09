@@ -1,16 +1,16 @@
 # Blueprint Pin
 
-Track a Forge recipe's remaining crafting batches while gathering ingredients. Requires BepInEx 5 and **VGModAPI 0.2.0 or newer**. Blueprint Pin 0.3 uses the typed `ModApi.Services` facade and events; it is not compatible with API 0.1.x. Install Mod API separately; this plugin does not bundle it or any game/Unity references.
+Track a Forge recipe's remaining crafting batches while gathering ingredients. Requires BepInEx 5 and **VGModAPI 0.2.4 or newer**. Blueprint Pin 0.4 uses the typed `ModApi.Services` facade and events; it is not compatible with API 0.1.x. Install Mod API separately; this plugin does not bundle it or any game/Unity references.
 
-Enable `[Recipes] Enabled = true` and `[Hud] Enabled = true` in the Mod API configuration, then restart. Unsupported game hashes/bindings remain unavailable. Crafting command integration is not required: Blueprint Pin never queues or cancels work itself.
+Recipe and HUD services initialize automatically in the required API version. Unsupported game hashes/bindings remain unavailable. Crafting command integration is not required: Blueprint Pin never queues or cancels work itself.
 
 ## Using the pin
 
-- In the Forge, choose an exact variant and 1–10,000 batches, then select **Pin**.
-- The shared HUD shows the recipe and target station, remaining batches, allocated queued work, and ingredients for batches **not already allocated to the queue**.
+- In the Forge, choose an exact variant and 1–10,000 batches, then select **Pin blueprint** beside the result.
+- A compact Forge-style widget shows the recipe and ingredients for batches **not already allocated to the queue**. Required quantities and available stock have separate columns; shortage counts are red, sufficient counts green, and unknown stock displays `?`. Allocated work and completion appear as plain progress messages, not technical queue counters.
 - Ingredient icons and item tooltips use Mod API presentation. Select an ingredient to open its sole available Forge producer, or choose among alternatives. Refining alternatives are identified but require the native Refinery; Forge navigation cannot open them. No producer is not an error or an invented recipe.
-- **Open pinned recipe** navigates to the exact variant at the current station. The target remains scoped to its original station; pin again to change the target station.
-- Close the panel to clear the pin; closing the producer chooser returns to the pin. Repeating Pin with the same variant/station and remaining quantity unpins it.
+- The integrated **Show in Forge** action opens to the exact variant at the current station. The target remains scoped to its original station; pin again to change the target station.
+- Close the panel to clear the pin; closing the producer chooser returns to the pin. Selecting **Pinned** with the same variant/station and remaining quantity unpins it.
 
 ## Target policy
 
@@ -32,4 +32,4 @@ Only `VGBlueprintPin/bin/Release/netstandard2.1/VGBlueprintPin.dll` is installed
 
 The consumer uses public recipes, quotes, Forge actions/navigation, job events and shared HUD contracts. Unity is used only for the BepInEx host/tick clock, not game access or presentation. No Harmony patch, private reflection, retained game recipe or cloned ingredient widget is used.
 
-Host tests do not qualify native layout, tooltip/input behavior, scaling, alternative-producer navigation or multi-output count behavior. Controlled Unity acceptance remains required before claiming those paths qualified.
+Correctness tests cover pin accounting, unavailable data, producer choices and presentation models. Build/test results are not a claim that every game resolution or font combination has been exercised.

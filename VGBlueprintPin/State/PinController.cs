@@ -28,7 +28,7 @@ internal sealed class PinController : IDisposable
         try
         {
         _hud = hud.Register(provider, "blueprint", OnHud); owned.Add(_hud);
-        _action = ui.RegisterAction(provider, "pin", new("Pin", "Track verified future batches", enabled: false), PinSelection, 0);
+        _action = ui.RegisterAction(provider, "pin", new("Pin blueprint", "Track this blueprint's ingredients", enabled: false), PinSelection, 0);
         owned.Add(_action);
         _selection = Observe<ForgeSelectionChange>(handler => ui.Changed += handler, handler => ui.Changed -= handler, _ => UpdateAction()); owned.Add(_selection);
         _jobEvents = Observe<CraftingJobEvent>(handler => jobs.Changed += handler, handler => jobs.Changed -= handler, fact => _pin.Observe(fact)); owned.Add(_jobEvents);
@@ -70,7 +70,7 @@ internal sealed class PinController : IDisposable
         var selection = _ui.Current;
         var valid = selection != null && selection.Batches is >= 1 and <= 10000;
         var same = selection != null && _pin.Recipe?.Equals(selection.SelectedRecipe) == true && _pin.Remaining == selection.Batches && _pin.Station?.Equals(selection.Station) == true;
-        _action.Update(new(same ? "Unpin" : "Pin", valid ? "Target future verified batches, not output units" : "Choose 1–10,000 batches", valid, true));
+        _action.Update(new(same ? "Pinned" : "Pin blueprint", valid ? "Pin or unpin this blueprint" : "Choose a crafting quantity", valid, true));
     }
     internal void Tick()
     {
@@ -81,14 +81,15 @@ internal sealed class PinController : IDisposable
         if (_choosing)
         {
             foreach (var choice in _choices) rows.Add(new(choice.Key, Short(choice.Value.DisplayName),
-                Short(choice.Key + " · " + choice.Value.Process + " · " + (choice.Value.Rarity ?? "rarity unspecified") + " · " + choice.Value.Id.LocalId),
+                Short("Option " + (rows.Count + 1) + " - " + choice.Value.Process + " - " + (choice.Value.Rarity ?? "")),
                 Short(choice.Value.Id.ProviderId + ":" + choice.Value.Id.LocalId) + (choice.Value.Process == RecipeProcess.Forge ? " — Open this exact producer/variant" : " — Refining route: use the Refinery"), clickable: choice.Value.Process == RecipeProcess.Forge));
             if (rows.Count == 0) rows.Add(new("none", "No available crafting producer", "Gather, loot or buy this ingredient"));
         }
         else
         {
-            rows.Add(new("progress", $"{_pin.Remaining} batches remaining", _jobStatus == CraftingJobQueryStatus.Available ? $"{_pin.Queued} allocated in queue" : "Queue allocation unavailable"));
-            if (_jobStatus != CraftingJobQueryStatus.Available) rows.Add(new("jobs-unavailable", "Allocation-derived requirements unavailable", _jobStatus.ToString()));
+            if (_pin.Remaining == 0) rows.Add(new("complete", "Complete"));
+            else if (_pin.Remaining <= _pin.Queued) rows.Add(new("crafting", "Crafting in progress"));
+            if (_jobStatus != CraftingJobQueryStatus.Available) rows.Add(new("jobs-unavailable", "Crafting progress unavailable"));
             if (_pin.Uncertain) rows.Add(new("uncertain", "Unverified work observed", "Reconcile inventory before pinning a new target"));
             if (_status.Length != 0) rows.Add(new("status", Short(_status)));
             var unallocated = Math.Max(0, _pin.Remaining - _pin.Queued);
@@ -101,26 +102,30 @@ internal sealed class PinController : IDisposable
                 {
                     var id = "ingredient" + _resources.Count; _resources.Add(id, input.Resource);
                     var unavailable = input.Inventories.Any(inventory => !inventory.Accessible) ? "; inaccessible cargo excluded" : "";
-                    var detail = $"need {Number(input.Required)} / have {Number(input.Available)}{unavailable}";
+                    var tooltip = "Show recipes for this ingredient" + unavailable;
                     if (input.Resource.Kind is not (RecipeResourceKind.Item or RecipeResourceKind.RefinedMaterial))
                     {
-                        rows.Add(new(id, Short(input.Resource.LocalId), Short(detail), "No supported icon/tooltip presentation for this resource kind", clickable: true));
+                        rows.Add(HudRow.Ingredient(id, Short(input.Resource.LocalId), input.Required, input.Available,
+                            "No supported icon/tooltip presentation for this resource kind" + unavailable, clickable: true));
                         continue;
                     }
                     var kind = input.Resource.Kind == RecipeResourceKind.Item ? HudPresentationKind.Item : HudPresentationKind.RefinedMaterial;
-                    rows.Add(new(id, "", Short(detail), "Choose an available producer", new(input.Resource.ProviderId, input.Resource.LocalId, kind,
+                    rows.Add(HudRow.Ingredient(id, "", input.Required, input.Available, tooltip, new(input.Resource.ProviderId, input.Resource.LocalId, kind,
                         (int)Math.Max(1, Math.Min(int.MaxValue, input.Required))), true));
                 }
             }
         }
-        var title = _choosing ? "Choose producer" : Short(_pin.Name + " · " + _pin.Station!.DisplayName);
+        var title = _choosing ? "Choose producer" : Short(_pin.Name);
         var fields = new[] { title, _pin.Recipe.ProviderId, _pin.Recipe.LocalId }.Concat(rows.SelectMany(row => new[] {
-            row.Id, row.Label, row.Detail, row.Tooltip, row.Clickable.ToString(), row.Presentation?.ProviderId ?? "", row.Presentation?.LocalId ?? "",
+            row.Id, row.Label, row.Detail, row.Tooltip, row.Clickable.ToString(),
+            Number(row.IngredientAmounts?.Required), Number(row.IngredientAmounts?.Available), row.Presentation?.ProviderId ?? "", row.Presentation?.LocalId ?? "",
             row.Presentation?.Kind.ToString() ?? "", row.Presentation?.TooltipCount.ToString(CultureInfo.InvariantCulture) ?? "" }));
         var fingerprint = string.Concat(fields.Select(value => value.Length.ToString(CultureInfo.InvariantCulture) + ":" + value));
         if (fingerprint == _fingerprint) return;
-        _hud.Update(new("Open pinned recipe", "Open the exact variant at the current station; the target remains scoped to its original station"), new(title, rows,
-            new(_pin.Recipe.ProviderId, _pin.Recipe.LocalId, HudPresentationKind.ForgeRecipe)));
+        var icon = new HudPresentation(_pin.Recipe.ProviderId, _pin.Recipe.LocalId, HudPresentationKind.ForgeRecipe);
+        var panel = !_choosing && rows.All(row => row.IngredientAmounts != null)
+            ? new HudRecipeView(title, rows, icon).ToPanel() : new HudPanel(title, rows, icon);
+        _hud.Update(new("Show in Forge", "Show this blueprint in the current station's Forge"), panel);
         _fingerprint = fingerprint;
     }
     private void OnHud(HudInteraction interaction)
@@ -144,7 +149,12 @@ internal sealed class PinController : IDisposable
         }
         _fingerprint = ""; Tick();
     }
-    private void Navigate(RecipeId recipe) => _status = "Navigation: " + _ui.Open(recipe);
+    private void Navigate(RecipeId recipe)
+    {
+        var result = _ui.Open(recipe);
+        _status = result == ForgeNavigationStatus.Selected ? "" : result == ForgeNavigationStatus.NotAtStation
+            ? "Dock at a station to open its Forge" : "This blueprint cannot be opened in the current Forge";
+    }
     private static string Number(double? value) => value?.ToString("G9", CultureInfo.InvariantCulture) ?? "unknown";
     private static string Short(string value) => value.Length <= 256 ? value : value.Substring(0, 253) + "...";
     private static IDisposable Observe<T>(Action<Action<T>> attach, Action<Action<T>> detach, Action<T> handler)
