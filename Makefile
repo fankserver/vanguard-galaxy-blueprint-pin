@@ -19,8 +19,9 @@ package: build
 	python3 tools/package.py --configuration $(CONFIGURATION)
 deploy: build
 	@test -d "$(GAME_DIR)/BepInEx/plugins"
-	cp "$(BUILDDIR)/VGBlueprintPin.dll" "$(GAME_DIR)/BepInEx/plugins/"
-	cp vgblueprintpin.vgmod.json "$(GAME_DIR)/BepInEx/plugins/"
+	@test ! -f "$(GAME_DIR)/BepInEx/plugins/VGBlueprintPin.dll" || { echo 'Back up and remove the old standalone DLL before folder deployment.'; exit 1; }
+	mkdir -p "$(GAME_DIR)/BepInEx/plugins/VGBlueprintPin"
+	cp "$(BUILDDIR)/VGBlueprintPin.dll" vgblueprintpin.vgmod.json "$(GAME_DIR)/BepInEx/plugins/VGBlueprintPin/"
 clean:
 	$(DOTNET) clean VGBlueprintPin/VGBlueprintPin.csproj
 	rm -rf VGBlueprintPin/bin VGBlueprintPin/obj VGBlueprintPin.Tests/bin VGBlueprintPin.Tests/obj

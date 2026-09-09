@@ -10,6 +10,14 @@ ROOT = Path(__file__).resolve().parent.parent
 REPOSITORY = "https://github.com/fankserver/vanguard-galaxy-blueprint-pin"
 
 
+def unique_fields(pairs):
+    result = {}
+    for key, value in pairs:
+        assert key not in result, "Duplicate metadata field"
+        result[key] = value
+    return result
+
+
 def package(configuration="Release", output=ROOT / "dist", tag=None):
     version = ET.parse(ROOT / "VGBlueprintPin/VGBlueprintPin.csproj").findtext("PropertyGroup/Version")
     assert re.fullmatch(r"\d+\.\d+\.\d+", version), "Invalid release version"
@@ -17,13 +25,19 @@ def package(configuration="Release", output=ROOT / "dist", tag=None):
     assert f'PluginVersion = "{version}"' in plugin, "Plugin and project versions differ"
     assert tag is None or tag == "v" + version, "Release tag differs from package version"
     metadata = ROOT / "vgblueprintpin.vgmod.json"
-    data = json.loads(metadata.read_text(encoding="utf-8"))
+    data = json.loads(metadata.read_text(encoding="utf-8"), object_pairs_hook=unique_fields)
+    assert set(data) <= {"schemaVersion", "pluginId", "author", "description", "projectUrl", "updateUrl", "channel"}
+    for key, limit in {"pluginId": 128, "author": 256, "description": 4096, "projectUrl": 2048, "updateUrl": 2048, "channel": 32}.items():
+        if key in data:
+            assert isinstance(data[key], str) and 0 < len(data[key].encode("utf-16-le")) // 2 <= limit
     assert data["schemaVersion"] == 1 and data["pluginId"] == "vgblueprintpin"
     assert data["channel"] == "stable"
     assert data["updateUrl"] == REPOSITORY + "/releases/latest/download/update.json"
     assert all(data.get(key) for key in ("author", "description", "projectUrl"))
     dll = ROOT / "VGBlueprintPin/bin" / configuration / "netstandard2.1/VGBlueprintPin.dll"
     assert dll.is_file(), "Build the plugin before packaging"
+    assert dll.stat().st_mtime_ns >= max((ROOT / "VGBlueprintPin/Plugin.cs").stat().st_mtime_ns,
+                                       (ROOT / "VGBlueprintPin/VGBlueprintPin.csproj").stat().st_mtime_ns), "Stale assembly: rebuild before packaging"
     output.mkdir(parents=True, exist_ok=True)
     archive = output / f"VGBlueprintPin-v{version}.zip"
     with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as bundle:
