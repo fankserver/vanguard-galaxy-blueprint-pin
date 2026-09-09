@@ -7,10 +7,10 @@ namespace VGBlueprintPin;
 
 [BepInPlugin(PluginGuid, PluginName, PluginVersion)]
 [BepInProcess("VanguardGalaxy.exe")]
-[BepInDependency(ModApi.PluginId, "0.1.38")]
+[BepInDependency(ModApi.PluginId, "0.2.0")]
 public sealed class Plugin : BaseUnityPlugin
 {
-    public const string PluginGuid = "vgblueprintpin", PluginName = "Blueprint Pin", PluginVersion = "0.2.0";
+    public const string PluginGuid = "vgblueprintpin", PluginName = "Blueprint Pin", PluginVersion = "0.3.0";
     private PinController? _controller;
     private float _next;
     private bool _warned;
@@ -22,12 +22,15 @@ public sealed class Plugin : BaseUnityPlugin
         {
             if (_controller == null)
             {
-                if (ModApi.Current == null || ModApi.Recipes == null || ModApi.RecipeQuotes == null || ModApi.CraftingJobs == null || ModApi.ForgeUi == null || ModApi.Hud == null)
+                var services = ModApi.Services;
+                if (!services.Lifecycle.SessionTracking.Availability.IsAvailable || !services.Recipes.Availability.IsAvailable ||
+                    !services.RecipeQuotes.Availability.IsAvailable || !services.CraftingJobs.Availability.IsAvailable ||
+                    !services.ForgeUi.Availability.IsAvailable || !services.Hud.Availability.IsAvailable)
                 {
-                    if (!_warned) Logger.LogWarning("Blueprint Pin requires Mod API recipe and HUD integration. Enable [Recipes] Enabled and [Hud] Enabled, then restart. Unavailable bindings remain disabled.");
+                    if (!_warned) Logger.LogWarning("Blueprint Pin requires available Mod API session, recipe and HUD services. Check API configuration and compatibility; unavailable bindings remain disabled.");
                     _warned = true; return;
                 }
-                _controller = new(PluginGuid, ModApi.Current, ModApi.Recipes, ModApi.RecipeQuotes, ModApi.CraftingJobs, ModApi.ForgeUi, ModApi.Hud);
+                _controller = new(PluginGuid, services.Lifecycle, services.Recipes, services.RecipeQuotes, services.CraftingJobs, services.ForgeUi, services.Hud);
             }
             _controller.Tick();
         }

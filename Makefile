@@ -8,7 +8,7 @@ BUILDDIR := VGBlueprintPin/bin/$(CONFIGURATION)/netstandard2.1
 .PHONY: all link-api build test deploy clean
 all: build
 link-api:
-	@test -f "$(API_ABSTRACTIONS)" || { echo 'Build Mod API 0.1.38+ abstractions or set API_ABSTRACTIONS to its DLL.'; exit 1; }
+	@test -f "$(API_ABSTRACTIONS)" || { echo 'Build Mod API 0.2.0+ abstractions or set API_ABSTRACTIONS to its DLL.'; exit 1; }
 	@mkdir -p VGBlueprintPin/lib
 	@ln -sf "$(abspath $(API_ABSTRACTIONS))" VGBlueprintPin/lib/VGModAPI.Abstractions.dll
 build: link-api
