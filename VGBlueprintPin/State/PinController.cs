@@ -6,6 +6,14 @@ using VGModAPI;
 
 namespace VGBlueprintPin.State;
 
+/// <summary>
+/// Event-driven pin controller. Handlers only record facts and set a dirty flag;
+/// a single deferred <see cref="Drain"/> (called from the plugin's frame hook, i.e.
+/// off the observation callback) rebuilds the action + HUD once. There is no poll
+/// tick: reads (jobs, quote, selection) happen only on demand inside Drain, never
+/// every frame. Matching the API's own delivery philosophy (GameplayNotifications),
+/// observation handlers stay nonblocking and renders coalesce.
+/// </summary>
 internal sealed class PinController : IDisposable
 {
     private readonly BlueprintPin _pin = new();
@@ -15,11 +23,12 @@ internal sealed class PinController : IDisposable
     private readonly IForgeUiService _ui;
     private readonly IHudRegistration _hud;
     private readonly IForgeActionRegistration _action;
-    private readonly IDisposable _lifetime, _jobEvents, _selection;
+    private readonly IDisposable _lifetime, _jobEvents, _selectionEvents;
     private readonly Dictionary<string, RecipeResourceId> _resources = new();
     private readonly Dictionary<string, RecipeSnapshot> _choices = new();
+    private ForgeSelectionSnapshot? _selection;
     private string _status = "", _fingerprint = "";
-    private bool _choosing;
+    private bool _choosing, _dirty;
     private CraftingJobQueryStatus _jobStatus = CraftingJobQueryStatus.SessionUnavailable;
     internal PinController(string provider, ILifecycleService lifecycle, IRecipeService catalog, IRecipeQuoteService quotes, ICraftingJobService jobs, IForgeUiService ui, IHudService hud)
     {
@@ -30,15 +39,22 @@ internal sealed class PinController : IDisposable
         _hud = hud.Register(provider, "blueprint", OnHud); owned.Add(_hud);
         _action = ui.RegisterAction(provider, "pin", new("Pin blueprint", "Track this blueprint's ingredients", enabled: false), PinSelection, 0);
         owned.Add(_action);
-        _selection = Observe<ForgeSelectionChange>(handler => ui.Changed += handler, handler => ui.Changed -= handler, _ => UpdateAction()); owned.Add(_selection);
-        _jobEvents = Observe<CraftingJobEvent>(handler => jobs.Changed += handler, handler => jobs.Changed -= handler, fact => _pin.Observe(fact)); owned.Add(_jobEvents);
+        _selectionEvents = Observe<ForgeSelectionChange>(handler => ui.Changed += handler, handler => ui.Changed -= handler, change => { _selection = change.Current; _dirty = true; }); owned.Add(_selectionEvents);
+        _jobEvents = Observe<CraftingJobEvent>(handler => jobs.Changed += handler, handler => jobs.Changed -= handler, fact =>
+        {
+            _pin.Observe(fact);
+            // Only an active pin cares about job facts; observe() already ignores unrelated events, and we stay nonblocking by deferring the render.
+            if (_pin.Recipe != null) _dirty = true;
+        }); owned.Add(_jobEvents);
         _lifetime = Observe<LifecycleEvent>(handler => lifecycle.Changed += handler, handler => lifecycle.Changed -= handler, fact =>
         {
             if (fact.Kind is LifecycleEventKind.SessionStarting or LifecycleEventKind.SessionInvalidated or LifecycleEventKind.SessionStartFailed)
-            { _pin.Clear(); _choosing = false; _status = ""; _hud.Update(null, null); _fingerprint = ""; }
+            { _pin.Clear(); _choosing = false; _status = ""; _hud.Update(null, null); _fingerprint = ""; _dirty = true; }
         });
         owned.Add(_lifetime);
-        UpdateAction();
+        // Seed the action from the current selection once so it shows correctly before the first change event. Not polling.
+        _selection = ui.Current;
+        _dirty = true;
         }
         catch
         {
@@ -56,7 +72,7 @@ internal sealed class PinController : IDisposable
             _pin.Set(selection.SelectedRecipe, selection.Station, selection.Presentation.DisplayName, selection.Batches);
             IncludeExisting();
         }
-        _status = ""; _choosing = false; _fingerprint = ""; Tick();
+        _status = ""; _choosing = false; _fingerprint = ""; _dirty = true;
     }
     private void IncludeExisting()
     {
@@ -67,16 +83,18 @@ internal sealed class PinController : IDisposable
     }
     private void UpdateAction()
     {
-        var selection = _ui.Current;
+        var selection = _selection;
         var valid = selection != null && selection.Batches is >= 1 and <= 10000;
         var same = selection != null && _pin.Recipe?.Equals(selection.SelectedRecipe) == true && _pin.Remaining == selection.Batches && _pin.Station?.Equals(selection.Station) == true;
         _action.Update(new(same ? "Pinned" : "Pin blueprint", valid ? "Pin or unpin this blueprint" : "Choose a crafting quantity", valid, true));
     }
-    internal void Tick()
+    /// <summary>Deferred render boundary, called every frame from the plugin. No-op unless dirty.</summary>
+    internal void Drain()
     {
+        if (!_dirty) return;
+        _dirty = false;
         UpdateAction();
         if (_pin.Recipe == null) { _hud.Update(null, null); _fingerprint = ""; return; }
-        IncludeExisting();
         var rows = new List<HudRow>(); _resources.Clear();
         if (_choosing)
         {
@@ -147,7 +165,7 @@ internal sealed class PinController : IDisposable
                 else { foreach (var candidate in candidates) _choices.Add("producer" + _choices.Count, candidate); _choosing = true; }
             }
         }
-        _fingerprint = ""; Tick();
+        _fingerprint = ""; _dirty = true;
     }
     private void Navigate(RecipeId recipe)
     {
@@ -168,5 +186,5 @@ internal sealed class PinController : IDisposable
         internal EventLease(Action detach) { _detach = detach; }
         public void Dispose() { var detach = _detach; _detach = null; detach?.Invoke(); }
     }
-    public void Dispose() { _selection.Dispose(); _jobEvents.Dispose(); _lifetime.Dispose(); _action.Dispose(); _hud.Dispose(); _pin.Clear(); }
+    public void Dispose() { _selectionEvents.Dispose(); _jobEvents.Dispose(); _lifetime.Dispose(); _action.Dispose(); _hud.Dispose(); _pin.Clear(); }
 }
