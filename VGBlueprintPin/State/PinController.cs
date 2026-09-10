@@ -7,12 +7,13 @@ using VGModAPI;
 namespace VGBlueprintPin.State;
 
 /// <summary>
-/// Event-driven pin controller. Handlers only record facts and set a dirty flag;
-/// a single deferred <see cref="Drain"/> (called from the plugin's frame hook, i.e.
-/// off the observation callback) rebuilds the action + HUD once. There is no poll
-/// tick: reads (jobs, quote, selection) happen only on demand inside Drain, never
-/// every frame. Matching the API's own delivery philosophy (GameplayNotifications),
-/// observation handlers stay nonblocking and renders coalesce.
+/// Fully synchronous, event-driven pin controller. Observation, lifecycle, HUD and
+/// action handlers rebuild and push the Forge action + HUD immediately inside the
+/// callback — there is no frame loop, no deferred drain and no poll of reads. Reads
+/// (jobs, quote) happen only at the moment they are needed, from within a handler.
+/// This is safe because the API's output sides (HudService.Update, action Update)
+/// and reads are dispatch-safe, and the only dispatch-guarded call (Forge navigation)
+/// is confined to user-input callbacks.
 /// </summary>
 internal sealed class PinController : IDisposable
 {
@@ -28,7 +29,7 @@ internal sealed class PinController : IDisposable
     private readonly Dictionary<string, RecipeSnapshot> _choices = new();
     private ForgeSelectionSnapshot? _selection;
     private string _status = "", _fingerprint = "";
-    private bool _choosing, _dirty;
+    private bool _choosing;
     private CraftingJobQueryStatus _jobStatus = CraftingJobQueryStatus.SessionUnavailable;
     internal PinController(string provider, ILifecycleService lifecycle, IRecipeService catalog, IRecipeQuoteService quotes, ICraftingJobService jobs, IForgeUiService ui, IHudService hud)
     {
@@ -39,22 +40,22 @@ internal sealed class PinController : IDisposable
         _hud = hud.Register(provider, "blueprint", OnHud); owned.Add(_hud);
         _action = ui.RegisterAction(provider, "pin", new("Pin blueprint", "Track this blueprint's ingredients", enabled: false), PinSelection, 0);
         owned.Add(_action);
-        _selectionEvents = Observe<ForgeSelectionChange>(handler => ui.Changed += handler, handler => ui.Changed -= handler, change => { _selection = change.Current; _dirty = true; }); owned.Add(_selectionEvents);
+        _selectionEvents = Observe<ForgeSelectionChange>(handler => ui.Changed += handler, handler => ui.Changed -= handler, change =>
+        { _selection = change.Current; Render(); }); owned.Add(_selectionEvents);
         _jobEvents = Observe<CraftingJobEvent>(handler => jobs.Changed += handler, handler => jobs.Changed -= handler, fact =>
         {
             _pin.Observe(fact);
-            // Only an active pin cares about job facts; observe() already ignores unrelated events, and we stay nonblocking by deferring the render.
-            if (_pin.Recipe != null) _dirty = true;
+            if (_pin.Recipe != null) Render();
         }); owned.Add(_jobEvents);
         _lifetime = Observe<LifecycleEvent>(handler => lifecycle.Changed += handler, handler => lifecycle.Changed -= handler, fact =>
         {
             if (fact.Kind is LifecycleEventKind.SessionStarting or LifecycleEventKind.SessionInvalidated or LifecycleEventKind.SessionStartFailed)
-            { _pin.Clear(); _choosing = false; _status = ""; _hud.Update(null, null); _fingerprint = ""; _dirty = true; }
+            { _pin.Clear(); _choosing = false; _status = ""; Render(); }
         });
         owned.Add(_lifetime);
-        // Seed the action from the current selection once so it shows correctly before the first change event. Not polling.
+        // Seed from the current selection once so the action shows correctly before the first change event.
         _selection = ui.Current;
-        _dirty = true;
+        Render();
         }
         catch
         {
@@ -72,7 +73,7 @@ internal sealed class PinController : IDisposable
             _pin.Set(selection.SelectedRecipe, selection.Station, selection.Presentation.DisplayName, selection.Batches);
             IncludeExisting();
         }
-        _status = ""; _choosing = false; _fingerprint = ""; _dirty = true;
+        _status = ""; _choosing = false; _fingerprint = ""; Render();
     }
     private void IncludeExisting()
     {
@@ -88,11 +89,9 @@ internal sealed class PinController : IDisposable
         var same = selection != null && _pin.Recipe?.Equals(selection.SelectedRecipe) == true && _pin.Remaining == selection.Batches && _pin.Station?.Equals(selection.Station) == true;
         _action.Update(new(same ? "Pinned" : "Pin blueprint", valid ? "Pin or unpin this blueprint" : "Choose a crafting quantity", valid, true));
     }
-    /// <summary>Deferred render boundary, called every frame from the plugin. No-op unless dirty.</summary>
-    internal void Drain()
+    /// <summary>Rebuild the Forge action + HUD from current state. Called synchronously from handlers.</summary>
+    private void Render()
     {
-        if (!_dirty) return;
-        _dirty = false;
         UpdateAction();
         if (_pin.Recipe == null) { _hud.Update(null, null); _fingerprint = ""; return; }
         var rows = new List<HudRow>(); _resources.Clear();
@@ -165,7 +164,7 @@ internal sealed class PinController : IDisposable
                 else { foreach (var candidate in candidates) _choices.Add("producer" + _choices.Count, candidate); _choosing = true; }
             }
         }
-        _fingerprint = ""; _dirty = true;
+        _fingerprint = ""; Render();
     }
     private void Navigate(RecipeId recipe)
     {
