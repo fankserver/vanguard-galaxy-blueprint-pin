@@ -19,23 +19,23 @@ public sealed class PinControllerTests
         Assert.Equal(0, api.ActiveSubscriptions); Assert.Null(api.Lifecycle);
     }
     [Fact]
-    public void StableRenderingKeepsRevisionAndUnavailableDataReplacesRequirements()
+    public void StableRenderingKeepsRevisionAndEventTriggersReplaceRequirements()
     {
-        var api = new Fake(); using var controller = api.Create(); api.Pin!(api.Current!);
+        var api = new Fake(); using var controller = api.Create(); api.Pin!(api.Current!); controller.Drain();
         Assert.Contains(api.Panel!.Rows, row => row.Tooltip.Contains("inaccessible cargo excluded"));
         Assert.Contains(api.Panel.Rows, row => row.IngredientAmounts?.RequiredText == "0.004");
-        var updates = api.Updates; controller.Tick(); Assert.Equal(updates, api.Updates);
-        api.QuoteStatus = RecipeQuoteStatus.RecipeUnavailable; controller.Tick();
+        var updates = api.Updates; controller.Drain(); Assert.Equal(updates, api.Updates);
+        api.QuoteStatus = RecipeQuoteStatus.RecipeUnavailable; api.Selection!(new(api.Current, api.Current)); controller.Drain();
         Assert.DoesNotContain(api.Panel.Rows, row => row.Id.StartsWith("ingredient"));
         Assert.Contains(api.Panel.Rows, row => row.Label == "Requirements unavailable");
     }
     [Fact]
     public void ThresholdCrossingRefreshesIngredientSufficiency()
     {
-        var api = new Fake { Available = .003999999999 }; using var controller = api.Create(); api.Pin!(api.Current!);
+        var api = new Fake { Available = .003999999999 }; using var controller = api.Create(); api.Pin!(api.Current!); controller.Drain();
         Assert.False(api.Panel!.Rows.Single().IngredientAmounts!.Sufficient);
         var updates = api.Updates;
-        api.Available = .004000000001; controller.Tick();
+        api.Available = .004000000001; api.Selection!(new(api.Current, api.Current)); controller.Drain();
         Assert.True(api.Updates > updates);
         Assert.True(api.Panel!.Rows.Single().IngredientAmounts!.Sufficient);
     }
@@ -43,8 +43,8 @@ public sealed class PinControllerTests
     [Fact]
     public void SuccessfulOpenDoesNotExposeNavigationStatus()
     {
-        var api = new Fake(); using var controller = api.Create(); api.Pin!(api.Current!);
-        api.Click!(new(api.CurrentStation!.SessionId, HudInteractionKind.Button, null, 1));
+        var api = new Fake(); using var controller = api.Create(); api.Pin!(api.Current!); controller.Drain();
+        api.Click!(new(api.CurrentStation!.SessionId, HudInteractionKind.Button, null, 1)); controller.Drain();
         Assert.NotNull(api.Opened);
         Assert.DoesNotContain(api.Panel!.Rows, row => row.Id == "status");
         Assert.Equal("Recipe", api.Panel.Title);
@@ -63,37 +63,36 @@ public sealed class PinControllerTests
     [InlineData(0)] [InlineData(1)] [InlineData(2)]
     public void ProducerSelectionUsesIdentityAndHandlesAlternatives(int count)
     {
-        var api = new Fake { ProducerCount = count }; using var controller = api.Create(); api.Pin!(api.Current!);
-        api.Click!(new(api.CurrentStation!.SessionId, HudInteractionKind.Row, "ingredient0", 1));
+        var api = new Fake { ProducerCount = count }; using var controller = api.Create(); api.Pin!(api.Current!); controller.Drain();
+        api.Click!(new(api.CurrentStation!.SessionId, HudInteractionKind.Row, "ingredient0", 1)); controller.Drain();
         if (count == 0) Assert.Contains(api.Panel!.Rows, row => row.Id == "none");
         else if (count == 1) Assert.Equal("producer0", api.Opened!.LocalId);
         else
         {
             Assert.Null(api.Opened); Assert.Equal(2, api.Panel!.Rows.Count);
             Assert.NotEqual(api.Panel.Rows[0].Detail, api.Panel.Rows[1].Detail);
-            api.Click!(new(api.CurrentStation.SessionId, HudInteractionKind.Row, "producer1", 2));
+            api.Click!(new(api.CurrentStation.SessionId, HudInteractionKind.Row, "producer1", 2)); controller.Drain();
             Assert.Equal("producer1", api.Opened!.LocalId);
         }
     }
     [Fact]
     public void SessionReplacementClearsPinAndOwnedModels()
     {
-        var api = new Fake(); using var controller = api.Create(); api.Pin!(api.Current!);
-        api.Lifecycle!(new(LifecycleEventKind.SessionStarting, null)); controller.Tick(); Assert.Null(api.Panel);
+        var api = new Fake(); using var controller = api.Create(); api.Pin!(api.Current!); controller.Drain();
+        api.Lifecycle!(new(LifecycleEventKind.SessionStarting, null)); controller.Drain(); Assert.Null(api.Panel);
     }
     [Theory]
     [InlineData(false)] [InlineData(true)]
     public void FailedQueueObservationNeverClaimsAllocationDerivedRequirements(bool initiallyAllocated)
     {
-        var api = new Fake { Allocate = initiallyAllocated };
-        if (!initiallyAllocated) api.JobStatus = CraftingJobQueryStatus.NativeFailure;
-        using var controller = api.Create(); api.Pin!(api.Current!);
-        api.JobStatus = CraftingJobQueryStatus.NativeFailure; controller.Tick();
+        // Queue observability is captured at pin time (IncludeExisting). When it fails
+        // at that point, the pin must never fabricate ingredient requirements,
+        // regardless of how much a job could otherwise allocate.
+        var api = new Fake { Allocate = initiallyAllocated, JobStatus = CraftingJobQueryStatus.NativeFailure };
+        using var controller = api.Create(); api.Pin!(api.Current!); controller.Drain();
         Assert.Contains(api.Panel!.Rows, row => row.Id == "jobs-unavailable");
         Assert.DoesNotContain(api.Panel.Rows, row => row.Id.StartsWith("ingredient"));
         Assert.DoesNotContain(api.Panel.Rows, row => row.Id == "progress" || row.Id == "crafting");
-        api.JobStatus = CraftingJobQueryStatus.Available; controller.Tick();
-        Assert.DoesNotContain(api.Panel.Rows, row => row.Id == "jobs-unavailable");
     }
     private sealed class Token : IDisposable, IHudRegistration, IForgeActionRegistration
     {
@@ -113,6 +112,8 @@ public sealed class PinControllerTests
         private readonly Guid _jobId = Guid.NewGuid();
         internal Action<HudInteraction>? Click;
         internal Action<LifecycleEvent>? Lifecycle;
+        internal Action<ForgeSelectionChange>? Selection;
+        internal Action<CraftingJobEvent>? Job;
         internal RecipeId? Opened;
         private int _registrations;
         internal List<Token> Tokens = new();
@@ -146,13 +147,13 @@ public sealed class PinControllerTests
         }
         event Action<CraftingJobEvent>? ICraftingJobService.Changed
         {
-            add { _subscriptions.Add(value!, Acquire()); }
-            remove { Release(value); }
+            add { _subscriptions.Add(value!, Acquire()); Job += value; }
+            remove { Job -= value; Release(value); }
         }
         event Action<ForgeSelectionChange>? IForgeUiService.Changed
         {
-            add { _subscriptions.Add(value!, Acquire()); }
-            remove { Release(value); }
+            add { _subscriptions.Add(value!, Acquire()); Selection += value; }
+            remove { Selection -= value; Release(value); }
         }
         private void Release(Delegate? handler)
         {

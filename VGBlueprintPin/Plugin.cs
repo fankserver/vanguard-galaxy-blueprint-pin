@@ -10,14 +10,11 @@ namespace VGBlueprintPin;
 [BepInDependency(ModApi.PluginId, "0.2.4")]
 public sealed class Plugin : BaseUnityPlugin
 {
-    public const string PluginGuid = "vgblueprintpin", PluginName = "Blueprint Pin", PluginVersion = "0.4.1";
+    public const string PluginGuid = "vgblueprintpin", PluginName = "Blueprint Pin", PluginVersion = "0.4.2";
     private PinController? _controller;
-    private float _next;
     private bool _warned;
     private void Update()
     {
-        if (UnityEngine.Time.unscaledTime < _next) return;
-        _next = UnityEngine.Time.unscaledTime + .5f;
         try
         {
             if (_controller == null)
@@ -32,7 +29,9 @@ public sealed class Plugin : BaseUnityPlugin
                 }
                 _controller = new(PluginGuid, services.Lifecycle, services.Recipes, services.RecipeQuotes, services.CraftingJobs, services.ForgeUi, services.Hud);
             }
-            _controller.Tick();
+            // Event-driven: Drain is a cheap no-op unless an observation/action handler set the dirty flag.
+            // No per-frame polling of reads, quotes or selection.
+            _controller.Drain();
         }
         catch (Exception error) { Logger.LogError(error); _controller?.Dispose(); _controller = null; }
     }
