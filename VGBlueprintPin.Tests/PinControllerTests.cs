@@ -19,32 +19,41 @@ public sealed class PinControllerTests
         Assert.Equal(0, api.ActiveSubscriptions); Assert.Null(api.Lifecycle);
     }
     [Fact]
-    public void StableRenderingKeepsRevisionAndEventTriggersReplaceRequirements()
+    public void StableRenderingKeepsRevisionAndEventReplacesRequirements()
     {
-        var api = new Fake(); using var controller = api.Create(); api.Pin!(api.Current!); controller.Drain();
+        var api = new Fake(); using var controller = api.Create(); api.Pin!(api.Current!);
         Assert.Contains(api.Panel!.Rows, row => row.Tooltip.Contains("inaccessible cargo excluded"));
         Assert.Contains(api.Panel.Rows, row => row.IngredientAmounts?.RequiredText == "0.004");
-        var updates = api.Updates; controller.Drain(); Assert.Equal(updates, api.Updates);
-        api.QuoteStatus = RecipeQuoteStatus.RecipeUnavailable; api.Selection!(new(api.Current, api.Current)); controller.Drain();
+        var updates = api.Updates;
+        api.Selection!(new(api.Current, api.Current)); Assert.Equal(updates, api.Updates);
+        api.QuoteStatus = RecipeQuoteStatus.RecipeUnavailable; api.Selection!(new(api.Current, api.Current));
         Assert.DoesNotContain(api.Panel.Rows, row => row.Id.StartsWith("ingredient"));
         Assert.Contains(api.Panel.Rows, row => row.Label == "Requirements unavailable");
     }
     [Fact]
     public void ThresholdCrossingRefreshesIngredientSufficiency()
     {
-        var api = new Fake { Available = .003999999999 }; using var controller = api.Create(); api.Pin!(api.Current!); controller.Drain();
+        var api = new Fake { Available = .003999999999 }; using var controller = api.Create(); api.Pin!(api.Current!);
         Assert.False(api.Panel!.Rows.Single().IngredientAmounts!.Sufficient);
         var updates = api.Updates;
-        api.Available = .004000000001; api.Selection!(new(api.Current, api.Current)); controller.Drain();
+        api.Available = .004000000001; api.Selection!(new(api.Current, api.Current));
         Assert.True(api.Updates > updates);
         Assert.True(api.Panel!.Rows.Single().IngredientAmounts!.Sufficient);
     }
-
+    [Fact]
+    public void JobDeliveryEventReducesRemainingAndRerendersInline()
+    {
+        var api = new Fake { Allocate = true }; using var controller = api.Create(); api.Pin!(api.Current!);
+        Assert.Contains(api.Panel!.Rows, row => row.Id == "crafting");
+        api.SetJobRemaining(1); api.Job!(api.JobEvent(CraftingJobEventKind.BatchObserved, CraftingDeliveryStatus.Verified));
+        api.SetJobRemaining(0); api.Job!(api.JobEvent(CraftingJobEventKind.BatchObserved, CraftingDeliveryStatus.Verified));
+        Assert.Contains(api.Panel!.Rows, row => row.Id == "complete");
+    }
     [Fact]
     public void SuccessfulOpenDoesNotExposeNavigationStatus()
     {
-        var api = new Fake(); using var controller = api.Create(); api.Pin!(api.Current!); controller.Drain();
-        api.Click!(new(api.CurrentStation!.SessionId, HudInteractionKind.Button, null, 1)); controller.Drain();
+        var api = new Fake(); using var controller = api.Create(); api.Pin!(api.Current!);
+        api.Click!(new(api.CurrentStation!.SessionId, HudInteractionKind.Button, null, 1));
         Assert.NotNull(api.Opened);
         Assert.DoesNotContain(api.Panel!.Rows, row => row.Id == "status");
         Assert.Equal("Recipe", api.Panel.Title);
@@ -63,23 +72,23 @@ public sealed class PinControllerTests
     [InlineData(0)] [InlineData(1)] [InlineData(2)]
     public void ProducerSelectionUsesIdentityAndHandlesAlternatives(int count)
     {
-        var api = new Fake { ProducerCount = count }; using var controller = api.Create(); api.Pin!(api.Current!); controller.Drain();
-        api.Click!(new(api.CurrentStation!.SessionId, HudInteractionKind.Row, "ingredient0", 1)); controller.Drain();
+        var api = new Fake { ProducerCount = count }; using var controller = api.Create(); api.Pin!(api.Current!);
+        api.Click!(new(api.CurrentStation!.SessionId, HudInteractionKind.Row, "ingredient0", 1));
         if (count == 0) Assert.Contains(api.Panel!.Rows, row => row.Id == "none");
         else if (count == 1) Assert.Equal("producer0", api.Opened!.LocalId);
         else
         {
             Assert.Null(api.Opened); Assert.Equal(2, api.Panel!.Rows.Count);
             Assert.NotEqual(api.Panel.Rows[0].Detail, api.Panel.Rows[1].Detail);
-            api.Click!(new(api.CurrentStation.SessionId, HudInteractionKind.Row, "producer1", 2)); controller.Drain();
+            api.Click!(new(api.CurrentStation.SessionId, HudInteractionKind.Row, "producer1", 2));
             Assert.Equal("producer1", api.Opened!.LocalId);
         }
     }
     [Fact]
     public void SessionReplacementClearsPinAndOwnedModels()
     {
-        var api = new Fake(); using var controller = api.Create(); api.Pin!(api.Current!); controller.Drain();
-        api.Lifecycle!(new(LifecycleEventKind.SessionStarting, null)); controller.Drain(); Assert.Null(api.Panel);
+        var api = new Fake(); using var controller = api.Create(); api.Pin!(api.Current!);
+        api.Lifecycle!(new(LifecycleEventKind.SessionStarting, null)); Assert.Null(api.Panel);
     }
     [Theory]
     [InlineData(false)] [InlineData(true)]
@@ -89,7 +98,7 @@ public sealed class PinControllerTests
         // at that point, the pin must never fabricate ingredient requirements,
         // regardless of how much a job could otherwise allocate.
         var api = new Fake { Allocate = initiallyAllocated, JobStatus = CraftingJobQueryStatus.NativeFailure };
-        using var controller = api.Create(); api.Pin!(api.Current!); controller.Drain();
+        using var controller = api.Create(); api.Pin!(api.Current!);
         Assert.Contains(api.Panel!.Rows, row => row.Id == "jobs-unavailable");
         Assert.DoesNotContain(api.Panel.Rows, row => row.Id.StartsWith("ingredient"));
         Assert.DoesNotContain(api.Panel.Rows, row => row.Id == "progress" || row.Id == "crafting");
@@ -105,7 +114,8 @@ public sealed class PinControllerTests
     }
     private sealed class Fake : ILifecycleService, IRecipeService, IRecipeQuoteService, ICraftingJobService, IForgeUiService, IHudService
     {
-        internal int FailAt, Updates, ProducerCount;
+        internal int FailAt, Updates, ProducerCount, JobRemaining = 1;
+        private long _seq;
         internal bool Allocate;
         internal double Available = 1;
         internal CraftingJobQueryStatus JobStatus = CraftingJobQueryStatus.Available;
@@ -135,6 +145,10 @@ public sealed class PinControllerTests
         public bool IsDispatchingCallbacks => false;
         public bool Visible => true;
         internal PinController Create() => new("test", this, this, this, this, this, this);
+        internal void SetJobRemaining(int remaining) => JobRemaining = remaining;
+        internal CraftingJobEvent JobEvent(CraftingJobEventKind kind, CraftingDeliveryStatus delivery)
+            => new(++_seq, kind, new(new(CurrentStation!, _jobId), _recipe, RecipeProcess.Forge, CraftingJobState.Active, 2, JobRemaining, 1, 0, 1),
+                Array.Empty<CraftingDeliverySnapshot>(), delivery, "");
         private Token Acquire()
         {
             if (++_registrations == FailAt) throw new InvalidOperationException("Registration unavailable");
